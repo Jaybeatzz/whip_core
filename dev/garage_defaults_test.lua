@@ -39,39 +39,39 @@ env.WhipEmit = noop
 env.WithTableCollation = function(s) return s end
 run('server/garages.lua', env)
 run('server/garage_spots.lua', env)
-run('server/jbc_garage_setup.lua', env)
+run('server/default_garages.lua', env)
 local garages, spots = env.Garages, env.GarageSpots
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 local function count(t) local n = 0; for _ in pairs(t) do n = n + 1 end; return n end
 check(count(garages.getAll()) == 16, 'first startup must create 16 default garages')
 check(#spots.all() == 16, 'each default must have exactly one bay')
 local before = writes
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 check(writes == before, 'unchanged restart must perform no writes')
 
 local retained = spots.all()[1]
 local retainedId, garageKey = retained.spotId, retained.garageKey
 local originalX = retained.x
 assert(spots.create(garageKey, retained.x + 10, retained.y, retained.z, retained.heading))
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 check(#spots.all() == 16 and spots.get(retainedId) ~= nil, 'remove surplus bays and preserve the nearest bay ID')
 assert(spots.update(retainedId, originalX + 1, retained.y, retained.z, retained.heading + 2))
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 check(spots.get(retainedId).x == originalX, 'restore a moved managed bay')
 assert(spots.delete(retainedId))
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 check(#spots.all() == 16, 'restore a missing managed bay')
 
 local legacy = garages.get('whip_motelgarage')
 legacy.resource = 'whip_garages'
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 check(legacy.resource == 'whip_core', 'adopt the earlier satellite garage')
 legacy.resource = 'whip_garages'
 failWrite = true
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 check(legacy.resource == 'whip_garages', 'failed adoption must retain the old in-memory owner')
 failWrite = false
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 
 local casino = garages.get('whip_casinogarage')
 garages._records.whip_casinogarage = nil
@@ -80,7 +80,7 @@ local custom = assert(garages.create({ key = 'custom_casino', name = 'Custom',
     x = casino.x, y = casino.y, z = casino.z,
     spawnX = casino.spawnX, spawnY = casino.spawnY, spawnZ = casino.spawnZ }))
 local customCount = #spots.all()
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 check(garages.get('whip_casinogarage') == nil, 'skip a default next to an existing public garage')
 check(#spots.all() == customCount and garages.get('custom_casino').garageId == custom.garageId,
     'preserve custom garages and bays')
@@ -89,7 +89,7 @@ check(#spots.all() == customCount and garages.get('custom_casino').garageId == c
 local motel = garages.get('whip_motelgarage')
 motel.resource = 'another_resource'
 spots.deleteForGarage(motel.key)
-env.JbcGarageSetup()
+env.SetupDefaultGarages()
 local motelBays = 0
 for _, s in ipairs(spots.all()) do if s.garageKey == motel.key then motelBays = motelBays + 1 end end
 check(motelBays == 0 and motel.resource == 'another_resource', 'do not reconcile another resource\'s garage')

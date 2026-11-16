@@ -1,4 +1,4 @@
--- Modified for JBC default garages, 2026-11-15. See docs/default-garages.md.
+-- Modified for WHIP default garages, 2026-11-15. See docs/default-garages.md.
 fx_version 'cerulean'
 game 'gta5'
 
@@ -114,7 +114,7 @@ server_scripts {
     'server/clothing_pictures.lua',
     'server/garages.lua',
     'server/garage_spots.lua',
-    'server/jbc_garage_setup.lua',
+    'server/default_garages.lua',
     'server/properties.lua',
     'server/property_objects.lua',
     'server/property_stashes.lua',

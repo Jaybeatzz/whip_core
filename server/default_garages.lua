@@ -1,4 +1,4 @@
--- Default public garages included in the unofficial JBC Core bundle.
+-- Default public garage locations for WHIP Core.
 local function public(key, name, marker, bay)
     return { key = key, name = name, marker = marker, bay = bay }
 end
@@ -89,7 +89,7 @@ local function reconcile(seed)
     return true
 end
 
-function JbcGarageSetup()
+function SetupDefaultGarages()
     for _, seed in ipairs(defaults) do
         local ran, ok, why = pcall(reconcile, seed)
         if not ran or not ok then

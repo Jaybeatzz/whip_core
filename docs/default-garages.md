@@ -4,7 +4,7 @@ The core provisions 16 default public garages during startup, after existing gar
 properties have loaded. Each managed location has one bay. Missing bays are restored, the nearest
 existing bay keeps its ID, and surplus bays at managed locations are removed.
 
-The locations are defined in `server/jbc_garage_setup.lua`: Public Garage, Motel Parking, Casino
+The locations are defined in `server/default_garages.lua`: Public Garage, Motel Parking, Casino
 Parking, San Andreas Parking, Spanish Avenue Parking, Caesars 24 North and West, Laguna, LSIA,
 Vespucci Beach, Motor Hotel, Route 68 Liquor, Sandy Shores, Paleto Bay, Pillbox and Grapeseed.
 
@@ -29,5 +29,4 @@ stubbed database/native boundaries. They do not replace an FXServer integration 
 In a test server, verify first startup and restart, adoption from `whip_garages`, an existing custom
 garage near a default, and normal vehicle storage/retrieval.
 
-Originally prepared as the JBC default-garages modifications on 2026-11-15; ported onto the current
-upstream source for this contribution. WHIP's original licenses and notices are retained.
+Default garage locations integrated into WHIP Core. WHIP's original licenses and notices are retained.
