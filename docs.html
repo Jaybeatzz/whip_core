@@ -2105,7 +2105,7 @@ end)</code></pre>
 <tr><td>A Director card or scenario</td><td><code>TestDirectorCard(type, props, { player = source })</code>, <code>TestDirectorScenario</code> (<a href="#director-cards">Director cards</a>)</td></tr>
 <tr><td>Something done to another player, alone</td><td>Pass <code>{ charId = n }</code> for a second character of yours, then log in as them to see it</td></tr>
 <tr><td>Two players at once</td><td>Two FiveM clients on one PC, same account, different characters. Turn off <code>Config.BlockOwnCharacterTransfers</code> on a test server to move money between them</td></tr>
-<tr><td>Dying, healing, a broken car</td><td><code>/w</code> → Kill Me, Restore Player Cores, Repair Vehicle (<a href="#guide-devtools">Dev Tools</a>)</td></tr>
+<tr><td>Dying, healing, a broken car</td><td><code>/w</code> → Kill Me, Restore Health &amp; Armour, Repair Vehicle (<a href="#guide-devtools">Dev Tools</a>)</td></tr>
 <tr><td>What your events did</td><td><code>/whip</code> → System → Monitor: each SecureEvent call, the reason for a refusal, and how long your handler took</td></tr>
 <tr><td>Errors you missed</td><td><code>whiperrors</code> in the server console (F8 in developer mode); <a href="#geterrorlog"><code>GetErrorLog</code></a> in code</td></tr>
 </table>
@@ -2900,17 +2900,6 @@ exports.whip_core:SetPlayerFlag(source, 'jobs_done', jobs + 1)</code></pre>
   <table class="param-table"><tr><th>Param</th><th>Type</th><th>Description</th></tr>
   <tr><td>appearance</td><td>table</td><td>Appearance data to validate</td></tr></table>
   <div class="return-info"><strong>Returns: </strong><code>boolean ok, table|string result</code>: the cleaned appearance, or why it was refused</div>
-</div></div>
-
-<div class="export-card" data-search="opencharactereditor character editor creator appearance clothing barber surgeon open force">
-<div class="export-header"><span class="export-name">OpenCharacterEditor(who)</span><span class="export-side side-server">SERVER</span></div>
-<div class="export-body">
-  <p>Opens a player's character editor on their own character, as <code>/charedit</code> does: Save keeps the new look and Cancel puts the old one back. It's refused for someone who isn't online, is still making their character or is down, and their game also refuses it while the editor is already open. A clothing shop or a surgeon calls it once the player has paid.</p>
-  <table class="param-table"><tr><th>Param</th><th>Type</th><th>Description</th></tr>
-  <tr><td>who</td><td>number|table</td><td>A server id, or <code>{ charId = n }</code> for a character who is online</td></tr></table>
-  <div class="return-info"><strong>Returns: </strong><code>true</code>, or <code>false, why</code></div>
-<pre><code class="lang-lua">local ok, why = exports.whip_core:OpenCharacterEditor(source)
-if not ok then exports.whip_core:NotifyPlayer(source, why, 'error') end</code></pre>
 </div></div>
 <h2 id="client-player">Player &amp; Status (Client)</h2>
 <p class="lede">Client exports about the local player: their sheet, stats and effects, body state, emotes and voice. For the server side, see <a href="#player">Player</a>.</p>
@@ -11476,7 +11465,7 @@ end</code></pre>
 <tr><td><code>InteractVisibleRange</code> / <code>InteractActiveRange</code></td><td><code>5.0</code> / <code>2.0</code></td><td>Where the circle appears, and where <kbd>E</kbd> works</td></tr>
 <tr><td><code>InteractFocusCone</code></td><td><code>40.0</code></td><td>Degrees from the view's centre a prompt must be to win (<code>InteractFocusConeNear</code> / <code>InteractFocusNearWeight</code> for doors)</td></tr>
 <tr><td><code>InteractDistWeight</code> / <code>InteractCameraWeight</code></td><td><code>0.6</code> / <code>0.4</code></td><td>A scoring helper's defaults; the <kbd>E</kbd> prompt doesn't use them</td></tr>
-<tr><td><code>ContainerInteractRange</code> / <code>ContainerStreamRange</code></td><td><code>2.5</code> / <code>100.0</code></td><td>Open a container (server allows +2 m, counted from the edge of a prop set up in /whip, where its prompt is); spawn its prop</td></tr>
+<tr><td><code>ContainerInteractRange</code> / <code>ContainerStreamRange</code></td><td><code>2.5</code> / <code>100.0</code></td><td>Open a container (server allows +2 m); spawn its prop</td></tr>
 <tr><td><code>ContainerPrompt</code></td><td><code>'face'</code></td><td>A stash prompt's default spot: <code>'middle'</code>, <code>'side'</code> (nearest side) or <code>'face'</code> (follows you). Players can pick their own</td></tr>
 <tr><td><code>ShopInteractRange</code> / <code>ShopStreamRange</code></td><td><code>2.5</code> / <code>100.0</code></td><td>The same, for shops</td></tr>
 <tr><td><code>ShopBasketSlots</code></td><td><code>10</code></td><td>Lines in a basket (1 to 50)</td></tr>
@@ -11524,7 +11513,6 @@ end</code></pre>
 <tr><td><code>VehiclePartPromptScan</code></td><td><code>15.0</code></td><td>How far away part prompts are prepared</td></tr>
 <tr><td><code>VehiclePartOpenAngle</code></td><td><code>70.0</code></td><td>Degrees an open door swings</td></tr>
 <tr><td><code>VehiclePartHingeTopFrac</code> / <code>VehiclePartHinges</code></td><td><code>0.52</code> / <code>{}</code></td><td>Guessing which way a boot opens; per-model fixes</td></tr>
-<tr><td><code>VehicleBackDoors</code> / <code>VehicleBackDoorClasses</code></td><td><code>{}</code> / <code>{ 10, 11, 12, 17, 18, 19, 20 }</code></td><td>Vans whose back doors are the trunk, found from the model on these vehicle classes (industrial, utility, vans, service, emergency, military, commercial). <code>true</code> or <code>false</code> by model hash to correct one</td></tr>
 <tr><td><code>VehicleFillers</code></td><td><code>{}</code></td><td>Fuel filler side by model: <code>left</code>, <code>right</code> or <code>rear</code></td></tr>
 <tr><td><code>VehicleMakeLogos</code></td><td><code>{}</code></td><td>Logo files spelled differently from the make, e.g. <code>['emperor'] = 'emporer'</code></td></tr>
 <tr><td><code>GarageSpotPromptHeight</code></td><td><code>1.22</code></td><td>Metres a bay's prompt floats up</td></tr>
@@ -11650,10 +11638,10 @@ end</code></pre>
 <table class="event-table">
 <tr><th>Entry</th><th>Does</th></tr>
 <tr><td><strong>Developer mode</strong></td><td>The switch; with it off, the only row</td></tr>
-<tr><td><strong>Noclip</strong></td><td>Fly, invisible and invincible: WASD, <kbd>Space</kbd>/<kbd>Ctrl</kbd>, <kbd>Shift</kbd> for speed. In a car, the car comes too and you stay in your seat, unless another player is driving it</td></tr>
+<tr><td><strong>Noclip</strong></td><td>Fly, invisible and invincible: WASD, <kbd>Space</kbd>/<kbd>Ctrl</kbd>, <kbd>Shift</kbd> for speed</td></tr>
 <tr><td><strong>Invisible</strong></td><td>Nobody sees you; you see yourself at half opacity</td></tr>
 <tr><td><strong>God Mode</strong></td><td>No damage; health kept full</td></tr>
-<tr><td><strong>Restore Player Cores</strong></td><td>Once: revives you if down (as <code>/whip_revive</code>), then fills your health, armour, food and drink</td></tr>
+<tr><td><strong>Restore Health &amp; Armour</strong></td><td>Once: revives you if down (as <code>/whip_revive</code>), then fills both</td></tr>
 <tr><td><strong>Reveal Players</strong></td><td>Every player as a named blip, and within 250 m a tag over their head: character name, charId and account name</td></tr>
 <tr><td><strong>Kill Me</strong></td><td>Once: an ordinary death where you are. Noclip and God Mode go off first</td></tr>
 <tr><td><strong>Repair Vehicle</strong></td><td>Once: repairs the car you're in, driving or not</td></tr>
