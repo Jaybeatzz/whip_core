@@ -54,6 +54,7 @@ Each keeps its own licence.
 |---|---|---|
 | RPEmotes, by TayMcKenzieNZ, Mathu_lmn, MadsL and the RPEmotes community, which grew from DullPear's dpemotes (its first repository, github.com/TayMcKenzieNZ/rpemotes, is gone; it carries on as rpemotes-reborn, github.com/alberttheprince/rpemotes-reborn): many of the emotes, their commands and their prop placements | whip_core/shared/emote_list.lua | GPL 3.0 (whip_core's `COPYING`). Any copy keeps these credits and stays open source |
 | txAdmin's death reasons, by André Tabarra (github.com/tabarra/txAdmin): many of the weapon names | whip_core/client/stats.lua, with its licence above the list | MIT, Copyright (c) 2019-2025 Take-Two Interactive Software, Inc. |
+| aty_cinematic, by atiysu (MIT), through whip_cine (github.com/Jaybeatzz/whip_cine): the Camera Creator's scene (actors, vehicles, props, lights, focus pulls, keyed time and weather, effects) | whip_core/shared/cam_scene.lua, client/cam_scene.lua, html/js/cam-scene.js | MIT, Copyright (c) atiysu (its licence above shared/cam_scene.lua) |
 | three.js, with its loaders and controls | whip_core (vehicle HUD), whip_autos, whip_loadingscreen, whip_phone, whip_voice | MIT |
 | LiveKit JavaScript client | whip_voice/html/js/vendor | Apache 2.0 |
 | Material Design Icons: the turbocharger glyph | whip_core/html/js/glyphs.js | Apache 2.0 |

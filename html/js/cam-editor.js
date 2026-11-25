@@ -24,6 +24,8 @@
 import { NuiRouter } from './router.js';
 import { nuiCallback } from './utils.js';
 import { padGlyph } from './pad-glyphs.js';
+import { createPadCursor } from './pad-cursor.js';
+import { renderSceneTab, renderSceneInspector, renderSceneLanes, sceneSubjects, SCENE_ROW } from './cam-scene.js';
 
 // The transport's and the mouse's pictures, drawn (the ⏮ ▶ characters come out as emoji on some PCs).
 const ICON = {
@@ -143,6 +145,8 @@ let askingDelete = null;
 let sayTimer = null, sayGone = null;
 let hintsShape = '';           // what the controls row was built for (rebuilt only when it changes)
 let playShape = '';
+let cardTab = 'camera';        // the card's tab: 'camera' (the sequence) or 'scene' (what it looks at)
+let panelsOn = false;          // a pad on the panels (LB + Menu): the pad cursor, not the camera
 const el = {};
 
 // ---- small helpers ----
@@ -175,6 +179,15 @@ const keys = () => (st && st.seq && Array.isArray(st.seq.keys) ? st.seq.keys : [
 const seqLength = () => (st && st.seq ? Math.max(st.seq.length || 0, 0) : 0);
 
 function cbk(name, data) { return nuiCallback(name, data || {}); }
+
+/** What html/js/cam-scene.js draws with: this page's own pieces, so the scene looks like the rest. */
+function sceneCtx() {
+    return { h, btn, section, head, select, toggle, numberField, segButtons, cbk, st, fmtTime, playhead,
+             xAt, timeAt, snap, looking: () => looking };
+}
+
+/** Who a camera key can frame: you, your vehicle, the picked thing, and the scene's actors, vehicles and props. */
+function subjectsAll() { return SUBJECTS.concat(st ? sceneSubjects(st) : []); }
 
 /** A choice as pill tabs, the chosen one the white pill. `dots`: each wears its kind's colour. */
 function segButtons(items, current, onPick, dots) {
@@ -378,6 +391,16 @@ function renderCard() {
     row.appendChild(btn('Copy code', () => cbk('ceCopy'), '', 'As a Lua call, to paste into a script'));
     files.appendChild(row);
 
+    // Camera (the sequence and its keys) or Scene (what it looks at: actors, vehicles, props, lights, tracks).
+    const tabs = segButtons([{ key: 'camera', label: 'Camera' }, { key: 'scene', label: 'Scene' }], cardTab,
+        (v) => { cardTab = v; renderCard(); });
+    tabs.classList.add('ce-seg', 'ce-cardtabs');
+    files.appendChild(tabs);
+    if (cardTab === 'scene') {
+        renderSceneTab(c, sceneCtx());
+        return;
+    }
+
     const sq = section(c, 'Sequence');
     const seq = st.seq || {};
     const grid = h('div', 'ce-grid');
@@ -405,7 +428,7 @@ function renderCard() {
     nk.appendChild(segButtons(KINDS, st.newKind, (k) => cbk('ceSeq', { field: 'newKind', value: k }), true));
     if (st.newKind !== 'fixed') {
         const of = h('div', 'ce-row');
-        of.appendChild(select(SUBJECTS, st.newSubject, (v) => cbk('ceSeq', { field: 'newSubject', value: v })));
+        of.appendChild(select(subjectsAll(), st.newSubject, (v) => cbk('ceSeq', { field: 'newSubject', value: v })));
         of.appendChild(btn('Pick', () => cbk('cePick'), '', 'The car, person or prop in the middle of the screen'));
         nk.appendChild(of);
     }
@@ -442,6 +465,12 @@ function renderCard() {
 function renderInspector() {
     const p = el.insp;
     p.innerHTML = '';
+    // A thing or track of the scene picked: its panel instead (html/js/cam-scene.js).
+    if (st.sceneSel) {
+        const shown = renderSceneInspector(p, sceneCtx());
+        p.classList.toggle('ce-hidden', !shown);
+        return;
+    }
     const i = st.sel;
     const k = i ? keys()[i - 1] : null;
     p.classList.toggle('ce-hidden', !k);
@@ -462,7 +491,7 @@ function renderInspector() {
     if (shot.kind !== 'fixed') {
         const row = h('label', 'ce-field');
         row.appendChild(h('span', 'ce-field-label', 'Of'));
-        row.appendChild(select(SUBJECTS, shot.subject, (v) => set('shot.subject', v)));
+        row.appendChild(select(subjectsAll(), shot.subject, (v) => set('shot.subject', v)));
         what.appendChild(row);
     }
     const grid = h('div', 'ce-grid');
@@ -628,6 +657,8 @@ function buildDock() {
     el.head.appendChild(h('div', 'ce-playhead-grip'));
     track.appendChild(el.ruler);
     track.appendChild(el.lane);
+    el.slanes = h('div', 'ce-slanes');
+    track.appendChild(el.slanes);
     track.appendChild(el.head);
     tl.appendChild(track);
     el.timeline = tl;
@@ -664,7 +695,7 @@ function buildDock() {
     };
     tl.addEventListener('pointerdown', scrubFrom);
     tl.addEventListener('dblclick', (e) => {
-        if (e.target.closest('.ce-key')) return;
+        if (e.target.closest('.ce-key') || e.target.closest('.ce-slanes')) return;
         cbk('ceAdd', { t: snap(timeAt(e.clientX), e.shiftKey) });
     });
     tl.addEventListener('wheel', (e) => {
@@ -769,6 +800,9 @@ function renderTimeline() {
         chip.addEventListener('pointerdown', (e) => keyDrag(e, i, k, chip));
         el.lane.appendChild(chip);
     });
+    // The scene's rows under the camera's keys: the timeline grows to hold them.
+    const rows = renderSceneLanes(el.slanes, sceneCtx());
+    el.timeline.style.height = (76 + (rows ? rows * SCENE_ROW + 6 : 0)) + 'px';
     placeHead();
 }
 
@@ -867,6 +901,7 @@ function renderHints() {
         { key: 'Ctrl + Z', pad: null, text: 'Undo' },
         { key: null, pad: 'r3', text: 'Kind' },
         { key: null, pad: 'menu', text: 'Save' },
+        { key: null, pad: ['lb', 'menu'], padJoin: '+', text: 'Panels (the cursor)' },
         { key: 'Tab', pad: ['lb', 'r3'], padJoin: '+', text: 'Controls to your character' },
         { key: 'F9', pad: null, text: 'Play in game' },
         { key: 'P', pad: null, text: st && st.hidePoints ? 'Show points' : 'Hide points' },
@@ -954,6 +989,7 @@ function render() {
     fitView();
     renderTimeline();
     renderTransport();
+    if (panelsOn && panelCursor.refresh) requestAnimationFrame(() => panelCursor.refresh());
 }
 
 function show() {
@@ -965,6 +1001,7 @@ function show() {
 
 function hide() {
     open = false;
+    if (panelsOn) { panelsOn = false; panelCursor.hide(); NuiRouter.syncNavScope(); }
     modal = null;
     closeDropdown();
     if (el.root) {
@@ -1179,6 +1216,7 @@ function onKey(e) {
         if (st && st.hideHud) { cbk('ceHud', { on: false }); return; }
         if (modal) { modal = null; renderModal(); return; }
         if (inBox) { e.target.blur(); return; }
+        if (st && st.sceneSel) { cbk('ceSceneSelect', {}); return; }
         if (st && st.sel) { cbk('ceSelect', { i: 0 }); return; }
         cbk('ceClose');
         return;
@@ -1216,4 +1254,45 @@ NuiRouter.registerKeyScope({
     priority: 31,
     isOpen: () => open,
     onKey,
+});
+
+// ---- a pad on the panels ----
+// LB + Menu (tools/camera.lua A.panels) hands the pad to the panels: WHIP's pad cursor (pad-cursor.js) moves with the
+// left stick and A presses what is under it, so every button, field and list here works on a pad (the scene's too).
+// The D-pad jumps between controls; B closes a list or the box that is up, else gives the sticks back to the camera.
+
+const panelCursor = createPadCursor({
+    name: 'camed',
+    root: () => el.root,
+    shown: () => open && panelsOn,
+    targets: '.ce-btn, .ce-tab, .ce-select, .ce-input, .ce-switch-row, .ce-key, .ce-chipbtn, .ce-swatch, '
+        + '.ce-srow-label, .ce-skey, .ce-keyrow-go, .ce-list-open',
+    floats: '.ce-dd-list, .ce-dd-opt',
+    modal: () => (ddOpen ? ddOpen.list : (modal ? el.modal : null)),
+    start: () => el.root && (el.root.querySelector('.ce-insp:not(.ce-hidden) .ce-btn') || el.root.querySelector('.ce-card .ce-btn')),
+});
+
+NuiRouter.registerKeyScope({
+    name: 'camEditorPanels',
+    priority: 32,
+    isOpen: () => open && panelsOn,
+    onKey,
+    onNav: (nav) => {
+        if (panelCursor.nav(nav)) return;
+        if (nav === 'back') {
+            if (ddOpen) { closeDropdown(); return; }
+            if (modal) { modal = null; renderModal(); return; }
+            cbk('cePanels', { on: false });
+        }
+    },
+    analog: true,
+    onAnalog: (a) => panelCursor.analog(a),
+    padHints: [['a', 'Press'], ['b', 'Back to the camera']],
+});
+
+NuiRouter.register('camEdPanels', (d) => {
+    panelsOn = !!d.on;
+    if (el.root) el.root.classList.toggle('ce-panels', panelsOn);
+    if (!panelsOn) panelCursor.hide();
+    NuiRouter.syncNavScope();
 });

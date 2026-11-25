@@ -27,6 +27,7 @@ local RESOURCE = GetCurrentResourceName()
 --- from another resource leaves it. `transitionOut`: how Stop eases back to gameplay.
 local _owner    = nil
 local _transOut = 0
+local _scene    = nil   -- the scene a sequence spawned (client/cam_scene.lua): it goes when the camera does
 
 --- Which camera is the current one. A loop remembers the number it started with and stops the
 --- moment another camera replaces its own (or it would steer, and stop, the replacement).
@@ -369,7 +370,11 @@ end
 ---   exitKey        Esc (B) ends it (default off)
 ---   transitionIn, transitionOut   milliseconds to ease from and back to the game's camera
 ---   async          return at once; the sequence plays in a thread of its own
+---   scene          false: leave out the sequence's scene (shared/cam_scene.lua); a running scene (client/
+---                  cam_scene.lua) to play with it rather than spawning one (the Camera Creator's own)
 --- }
+--- A sequence with a scene WAITS while it spawns (call it from a thread), even with `async`. Its actors' and
+--- vehicles' ids are subjects: pass one in `subjects` (the player's own car as 'car1') and it is used instead.
 ---@param owner string|nil  the resource playing it (the export fills it in)
 ---@return boolean ok
 ---@return string|nil why
@@ -392,21 +397,40 @@ function Camera.PlaySequence(seq, opts, owner)
     if opts.loop ~= nil then clean.loop = opts.loop == true end
     if opts.letterbox ~= nil then clean.letterbox = opts.letterbox == true end
 
-    local run = CamSequence.newRun(clean, opts.subjects)
-    if not CamSequence.captureAnchor(run) then return false, ('its anchor %s is not there'):format(clean.anchor) end
+    -- The scene in front of the camera: spawned now (it waits), its ids added to a copy of the subjects.
+    local subjects = {}
+    for k, v in pairs(opts.subjects or {}) do subjects[k] = v end
+    local scene = nil
+    if type(opts.scene) == 'table' and opts.scene.advance then
+        scene = opts.scene
+        for k, v in pairs(scene.subjects) do if subjects[k] == nil then subjects[k] = v end end
+    elseif opts.scene ~= false and clean.scene then
+        scene = CamScene.start(clean.scene, subjects)
+        if scene then scene:seek(startAt) end
+    end
+    local ownScene = scene ~= nil and scene ~= opts.scene
+    local function fail(why)
+        if ownScene then scene:stop() end
+        return false, why
+    end
+
+    local run = CamSequence.newRun(clean, subjects)
+    if not CamSequence.captureAnchor(run) then return fail(('its anchor %s is not there'):format(clean.anchor)) end
     if opts.control then run.ctl = { yaw = 0.0, pitch = 0.0, zoom = 1.0, tYaw = 0.0, tPitch = 0.0, tZoom = 1.0, basePitch = 0.0 } end
     -- The first picture before anything is taken: a sequence with nothing to show starts nothing.
     local first = CamSequence.evaluate(run, startAt, 1.0)
-    if not first then return false, 'none of its subjects is there' end
+    if not first then return fail('none of its subjects is there') end
     if run.ctl then
         local k1 = clean.keys[1].shot
         run.ctl.basePitch = k1.kind == 'orbit' and (k1.pitch or 0.0) or 0.0
     end
 
     local took, busy = takeCamera(owner)
-    if not took then return false, busy end
+    if not took then return fail(busy) end
     _owner    = owner
     _transOut = tonumber(opts.transitionOut) or 0
+    _scene    = ownScene and scene or nil    -- stopped with the camera (one handed in is its owner's)
+    run.scene = scene
     local transIn = tonumber(opts.transitionIn) or 0
 
     _cam = CreateCamWithParams('DEFAULT_SCRIPTED_CAMERA', first.x, first.y, first.z,
@@ -439,6 +463,7 @@ function Camera._sequenceLoop(gen, run, speed, startAt, opts)
     local seq = run.seq
     local started = GetGameTimer() - startAt / speed
     local last = GetGameTimer()
+    local scene, sceneT = run.scene, startAt
     while _active and _gen == gen do
         local now = GetGameTimer()
         local dt = math.min((now - last) / 1000.0, 0.25)
@@ -447,6 +472,7 @@ function Camera._sequenceLoop(gen, run, speed, startAt, opts)
         if t > seq.length then
             if seq.loop and seq.length > 0 then
                 started, t = now, 0.0
+                if scene then scene:seek(0.0); scene.firedZero = false; sceneT = 0.0 end
             elseif not opts.hold then
                 break
             end
@@ -454,6 +480,12 @@ function Camera._sequenceLoop(gen, run, speed, startAt, opts)
         if run.ctl then steer(run, dt) end
         local pose, fx = CamSequence.evaluate(run, t, dt)
         if pose then show(pose, fx, t, seq.letterbox) end
+        if scene then
+            local st = math.min(t, seq.length)
+            scene:advance(sceneT, st)
+            sceneT = st
+            scene:frame(st, dt, _cam)
+        end
         if opts.exitKey and (IsDisabledControlJustPressed(0, 200) or IsDisabledControlJustPressed(0, 202)) then
             Camera.Stop()
             return
@@ -499,6 +531,11 @@ function Camera.Stop(owner)
     _active = false
     ControlBlocks.release('camera')
     ClearFilter()
+    if _scene then
+        local sc = _scene
+        _scene = nil
+        sc:stop()
+    end
     if _following then
         _following = false
         ViewportRoom.release()

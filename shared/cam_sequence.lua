@@ -222,6 +222,10 @@ function CamSequence.clean(seq)
     for _, k in ipairs(out.keys) do k._i = nil end
 
     local last = out.keys[#out.keys].t
+    -- The scene (shared/cam_scene.lua): what is in front of the camera, keyed on the same timeline. Its keys
+    -- count towards the length, so an actor's last move is not cut off by the camera's last key.
+    out.scene = CamScene.clean(seq.scene, CamSequence.MAX_LENGTH)
+    if out.scene then last = math.max(last, CamScene.lastKey(out.scene)) end
     out.length, why = num(seq.length, 0, CamSequence.MAX_LENGTH, last, 'length'); if why then return nil, why end
     if out.length < last then out.length = last end
     return out
