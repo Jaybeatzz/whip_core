@@ -925,3 +925,117 @@
 .ce-list-open:hover { border-color: var(--ui-ring); background: var(--ui-slot-bg-chosen); }
 .ce-list-name { font-size: var(--ui-fs-md); font-weight: var(--ui-fw-bold); }
 .ce-list-sub { font-size: var(--ui-fs-sm); font-weight: var(--ui-fw-semibold); color: var(--ui-text-label); font-variant-numeric: tabular-nums; }
+
+/* ---- the scene (html/js/cam-scene.js): what the camera looks at ---- */
+
+/* Each kind of thing wears a colour: its chip, its row on the timeline, its dots. */
+#cam-editor {
+    --ce-lane-actors: #60a5fa;
+    --ce-lane-vehicles: #fbbf24;
+    --ce-lane-props: #a3e635;
+    --ce-lane-lights: #fde68a;
+    --ce-lane-track: #94a3b8;
+}
+.ce-cardtabs { margin-top: 10px; }
+.ce-cardtabs .ce-tab { flex: 1 1 0; justify-content: center; }
+.ce-btns-4 { grid-auto-flow: row; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ce-btns-4 .ce-btn { padding: 0 6px; }
+.ce-btn.on { background: var(--ui-slot-bg-chosen); border-color: var(--ui-ring); }
+
+.ce-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ce-chipbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 14px;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-surface-medium);
+    color: var(--ui-text);
+    font-family: var(--ui-font);
+    font-size: var(--ui-fs-sm);
+    font-weight: var(--ui-fw-bold);
+    cursor: pointer;
+}
+.ce-chipbtn:hover { background: var(--ui-surface-hover-strong); border-color: var(--ui-border-hover); }
+.ce-chipbtn.on { background: var(--ui-slot-bg-chosen); border-color: var(--ui-ring); }
+.ce-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ce-lane-track); }
+.ce-lane-actors .ce-chip-dot, .ce-lane-actors .ce-skey { background: var(--ce-lane-actors); }
+.ce-lane-vehicles .ce-chip-dot, .ce-lane-vehicles .ce-skey { background: var(--ce-lane-vehicles); }
+.ce-lane-props .ce-chip-dot, .ce-lane-props .ce-skey { background: var(--ce-lane-props); }
+.ce-lane-lights .ce-chip-dot, .ce-lane-lights .ce-skey { background: var(--ce-lane-lights); }
+
+.ce-swatches { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.ce-swatch {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid rgba(0, 0, 0, 0.6);
+    cursor: pointer;
+    padding: 0;
+}
+.ce-swatch.on { box-shadow: 0 0 0 2px var(--ui-ring); }
+
+.ce-keyrow { display: flex; align-items: center; gap: 6px; }
+.ce-keyrow + .ce-keyrow { margin-top: 4px; }
+.ce-keyrow-go {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: var(--ui-radius-row);
+    border: 1px solid transparent;
+    background: none;
+    color: var(--ui-text);
+    font-family: var(--ui-font);
+    font-size: var(--ui-fs-sm);
+    text-align: left;
+    cursor: pointer;
+}
+.ce-keyrow-go:hover { background: var(--ui-surface-hover); }
+.ce-keyrow-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The timeline's scene rows, under the camera's keys. */
+.ce-slanes { position: absolute; left: 0; right: 0; top: 76px; }
+.ce-srow {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 16px;
+    border-top: 1px solid var(--ui-border);
+}
+.ce-srow.on { background: rgba(255, 255, 255, 0.06); }
+.ce-srow-label {
+    position: absolute;
+    left: -12px;
+    top: 1px;
+    height: 14px;
+    padding: 0 6px;
+    border: none;
+    border-radius: var(--ui-radius-hair);
+    background: rgba(0, 0, 0, 0.45);
+    color: var(--ui-text-mid);
+    font-family: var(--ui-font);
+    font-size: var(--ui-fs-xs);
+    font-weight: var(--ui-fw-bold);
+    line-height: 14px;
+    cursor: pointer;
+    z-index: 3;
+}
+.ce-srow.on .ce-srow-label { color: var(--ui-text); }
+.ce-skey {
+    position: absolute;
+    top: 3px;
+    width: 10px;
+    height: 10px;
+    margin-left: -5px;
+    border-radius: 50%;
+    background: var(--ce-lane-track);
+    box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.7);
+    cursor: grab;
+    z-index: 2;
+}
+.ce-skey:hover { box-shadow: 0 0 0 2px var(--ui-ring); }

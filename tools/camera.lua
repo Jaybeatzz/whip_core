@@ -49,9 +49,17 @@ local S = {
     modeAt = 0,           -- when the editor last opened or closed (a key held across the change acts once)
     smooth = false,       -- this PC's choice: switching cameras glides rather than cuts
     cleanAll = true,      -- this PC's choice: a clean screen the whole time you play, not only while a shot rolls
+    -- The scene (shared/cam_scene.lua): what the camera looks at, up in the world at the playhead.
+    sceneSel = nil,       -- { lane, id }: the thing (or track) picked, its panel on the right
+    sceneRun = nil,       -- the scene up in the world (client/cam_scene.lua)
+    panels = false,       -- a pad on the panels (LB + Menu): the stick moves the cursor, not the camera
 }
 
 local PREFS_KVP = 'whip:cameraCreator:prefs'
+
+local sceneSync   -- the scene in the world brought up to the draft (below, with the scene's editing)
+local sceneFind   -- a thing in the scene by its id (the same)
+local takeFocus   -- the page's focus (below, with the input)
 
 --- Is the Camera Creator up? client/inventory.lua's screensOpen counts it with the other in-world editors.
 CameraCreatorActive = false
@@ -129,6 +137,7 @@ end
 --- Work the sequence out again after a change: its clean copy, a fresh run, the anchor as it stands now.
 local function rebuild()
     S.ver = S.ver + 1
+    if sceneSync then sceneSync() end
     local keys = S.seq.keys
     local last = #keys > 0 and keys[#keys].t or 0
     for _, k in ipairs(keys) do if k.t > last then last = k.t end end
@@ -169,6 +178,7 @@ local function sendState()
         canUndo = #S.undo > 0, canRedo = #S.redo > 0, looking = S.looking, pad = S.pad,
         target = S.targetName, filters = Camera.Filters, hideHud = S.hideHud, hidePoints = S.hidePoints,
         smooth = S.smooth, cleanAll = S.cleanAll, drive = S.drive,
+        sceneSel = S.sceneSel, sceneUp = S.sceneRun ~= nil, panels = S.panels, moods = S.moods,
     })
 end
 
@@ -413,6 +423,7 @@ end
 function A.select(i)
     if not (i and S.seq.keys[i]) then S.sel = nil sendState() return end
     S.sel = i
+    S.sceneSel = nil
     S.playhead = S.seq.keys[i].t
     S.playing = false
     startViewing()
@@ -653,7 +664,10 @@ function A.editSeq(field, value)
         end
         sendState()
     elseif field == 'newSubject' then
-        if value == 'player' or value == 'vehicle' or value == 'target' then S.newSubject = value end
+        if value == 'player' or value == 'vehicle' or value == 'target'
+            or sceneFind('actors', value) or sceneFind('vehicles', value) or sceneFind('props', value) then
+            S.newSubject = value
+        end
         sendState()
     end
 end
@@ -839,6 +853,342 @@ function A.deleteSaved(name)
         SendNUIMessage({ action = 'camEdList', list = res.list, mayEdit = true })
         sendState()
     end)
+end
+
+-- ============================================
+-- The scene: actors, vehicles, props, lights, focus, time and weather, effects
+-- ============================================
+--
+-- What the sequence puts in front of its camera (shared/cam_scene.lua), edited here and kept up in the world at the
+-- playhead while the editor is open (client/cam_scene.lua), so a shot is framed on the real thing. An actor's or
+-- vehicle's id is a subject: a key can orbit 'hero' or chase 'car1'. New things go where the camera looks; a light
+-- goes where the camera is, pointing where it looks (hold it like a lamp). A key goes on at the playhead.
+-- Every change goes through change(), so it is undone like a camera key and kept with the draft.
+
+local SCENE_LANES = { actors = true, vehicles = true, props = true, lights = true }   -- lists of things
+local SCENE_TRACKS = { dof = true, env = true }                                       -- { keys = {...} }
+local SCENE_LISTS = { fx = true, markers = true }                                     -- keys at the top level
+local SCENE_DEFAULTS = {
+    actors = { model = 'a_m_y_business_01', prefix = 'actor', first = 'hero' },
+    vehicles = { model = 'elegy', prefix = 'car' },
+    props = { model = 'prop_box_wood02a', prefix = 'prop' },
+    lights = { prefix = 'light', first = 'key' },
+}
+
+local function sceneTable()
+    S.seq.scene = type(S.seq.scene) == 'table' and S.seq.scene or {}
+    local sc = S.seq.scene
+    for lane in pairs(SCENE_LANES) do sc[lane] = type(sc[lane]) == 'table' and sc[lane] or {} end
+    for lane in pairs(SCENE_TRACKS) do
+        sc[lane] = type(sc[lane]) == 'table' and sc[lane] or {}
+        sc[lane].keys = type(sc[lane].keys) == 'table' and sc[lane].keys or {}
+    end
+    for lane in pairs(SCENE_LISTS) do sc[lane] = type(sc[lane]) == 'table' and sc[lane] or {} end
+    return sc
+end
+
+--- The thing with `id` in `lane`, and its place in the list.
+sceneFind = function(lane, id)
+    local list = SCENE_LANES[lane] and S.seq.scene and S.seq.scene[lane]
+    if type(list) ~= 'table' then return nil end
+    for i, e in ipairs(list) do if e.id == id then return e, i end end
+    return nil
+end
+
+--- The keys of a lane: a thing's own, a track's, or the effects' and markers' list.
+local function sceneKeys(lane, id)
+    local sc = sceneTable()
+    if SCENE_LANES[lane] then
+        local e = sceneFind(lane, id)
+        if not e then return nil end
+        e.keys = type(e.keys) == 'table' and e.keys or {}
+        return e.keys
+    elseif SCENE_TRACKS[lane] then return sc[lane].keys
+    elseif SCENE_LISTS[lane] then return sc[lane] end
+    return nil
+end
+
+--- Where the camera looks: the first thing (or ground) in the middle of the screen, else 6 m ahead.
+local function aimPoint()
+    local p, r = FreeCam.getCoord(), FreeCam.getRot()
+    local fx, fy, fz = CamMath.forward(r.x, r.z)
+    local h = StartExpensiveSynchronousShapeTestLosProbe(p.x, p.y, p.z, p.x + fx * 200.0, p.y + fy * 200.0, p.z + fz * 200.0,
+        1 + 16, 0, 4)
+    local _, hit, at = GetShapeTestResult(h)
+    if (hit == 1 or hit == true) and at then return { at.x, at.y, at.z + 1.0 }, p end
+    return { p.x + fx * 6.0, p.y + fy * 6.0, p.z + fz * 6.0 }, p
+end
+
+--- The heading that faces the camera from `at`.
+local function facingCamera(at, cam)
+    return CamMath.round(CamMath.wrap180(math.deg(math.atan(cam.y - at[2], cam.x - at[1])) - 90.0), 1)
+end
+
+local function round3(v) return { CamMath.round(v[1], 3), CamMath.round(v[2], 3), CamMath.round(v[3], 3) } end
+
+--- A new id for `lane`: its first name ('hero', 'key'), then car1, car2 ...
+local function sceneId(lane)
+    local d = SCENE_DEFAULTS[lane]
+    local taken = {}
+    for l in pairs(SCENE_LANES) do
+        for _, e in ipairs((S.seq.scene or {})[l] or {}) do taken[e.id] = true end
+    end
+    if d.first and not taken[d.first] then return d.first end
+    for n = 1, 99 do
+        if not taken[d.prefix .. n] then return d.prefix .. n end
+    end
+    return nil
+end
+
+local function sceneStillHas(lane, id)
+    local clean = CamScene.clean(S.seq.scene, CamSequence.MAX_LENGTH)
+    if not clean then return false end
+    for _, e in ipairs(clean[lane] or {}) do if e.id == id then return true end end
+    return false
+end
+
+--- Pick a thing (or a track): its panel opens on the right, its keys light up on the timeline.
+function A.sceneSelect(lane, id)
+    if lane and not (SCENE_LANES[lane] or SCENE_TRACKS[lane] or SCENE_LISTS[lane]) then return end
+    if lane and SCENE_LANES[lane] and not sceneFind(lane, id) then lane = nil end
+    S.sceneSel = lane and { lane = lane, id = SCENE_LANES[lane] and id or nil } or nil
+    if S.sceneSel then S.sel = nil end
+    sendState()
+end
+
+--- A new actor, vehicle, prop or light where the camera looks (`model`: what it is, else the lane's default).
+function A.sceneAdd(lane, mdl)
+    if not SCENE_LANES[lane] then return end
+    local id = sceneId(lane)
+    if not id then say('That is as many as a scene takes', 'warn') return end
+    local at, cam = aimPoint()
+    local def = { id = id, keys = {} }
+    if lane == 'lights' then
+        local r = FreeCam.getRot()
+        local fx, fy, fz = CamMath.forward(r.x, r.z)
+        def.kind, def.pos, def.dir = 'spot', round3({ cam.x, cam.y, cam.z }), round3({ fx, fy, fz })
+        def.color, def.range, def.intensity, def.inner, def.outer, def.falloff = { 255, 214, 170 }, 12.0, 6.0, 20.0, 40.0, 4.0
+    elseif lane == 'props' then
+        def.model = type(mdl) == 'string' and mdl or SCENE_DEFAULTS.props.model
+        def.pos, def.rot = round3({ at[1], at[2], at[3] - 1.0 }), { 0.0, 0.0, facingCamera(at, cam) }
+    else
+        def.model = type(mdl) == 'string' and mdl or SCENE_DEFAULTS[lane].model
+        def.spawn = round3(at)
+        def.spawn[4] = facingCamera(at, cam)
+        if lane == 'vehicles' then def.spawn[3] = def.spawn[3] - 0.5 end
+    end
+    local ok = change(function()
+        local sc = sceneTable()
+        sc[lane][#sc[lane] + 1] = def
+        if not sceneStillHas(lane, id) then return false, 'That could not be placed' end
+        return true
+    end, true)
+    if not ok then return end
+    S.sceneSel, S.sel = { lane = lane, id = id }, nil
+    say(('%s added: %s'):format(id, lane == 'lights' and 'a light where the camera is' or def.model), 'ok')
+    sendState()
+end
+
+-- What the page may set on a thing, and how (CamScene.clean checks it all again).
+local SCENE_FIELDS = {
+    actors = { model = 'string', invincible = 'boolean', heading = 'number' },
+    vehicles = { model = 'string', driver = 'string', heading = 'number' },
+    props = { model = 'string', frozen = 'boolean', heading = 'number' },
+    lights = { kind = 'string', color = 'table', range = 'number', intensity = 'number', inner = 'number', outer = 'number',
+               falloff = 'number', shadow = 'boolean', on = 'boolean', follow = 'string' },
+}
+
+function A.sceneSet(lane, id, field, value)
+    local kinds = SCENE_FIELDS[lane]
+    local want = kinds and kinds[field]
+    if not want then return end
+    if value ~= nil and type(value) ~= want and not (want == 'string' and value == false) then return end
+    local e = sceneFind(lane, id)
+    if not e then return end
+    change(function()
+        if field == 'heading' then
+            local v = CamMath.wrap180(tonumber(value) or 0.0)
+            if lane == 'props' then e.rot[3] = v else e.spawn[4] = v end
+        elseif (field == 'driver' or field == 'follow') and (value == '' or value == false) then
+            e[field] = nil
+        else
+            e[field] = value
+        end
+        if not sceneStillHas(lane, id) then return false, 'That would not work' end
+        return true
+    end)
+end
+
+--- A thing moved to where the camera looks (a light: to the camera, pointing where it looks).
+function A.sceneHere(lane, id)
+    local e = sceneFind(lane, id)
+    if not e then return end
+    local at, cam = aimPoint()
+    change(function()
+        if lane == 'lights' then
+            local r = FreeCam.getRot()
+            local fx, fy, fz = CamMath.forward(r.x, r.z)
+            e.pos, e.dir = round3({ cam.x, cam.y, cam.z }), round3({ fx, fy, fz })
+        elseif lane == 'props' then
+            e.pos = round3({ at[1], at[2], at[3] - 1.0 })
+        else
+            local h = e.spawn[4]
+            e.spawn = round3(at)
+            e.spawn[4] = h
+            if lane == 'vehicles' then e.spawn[3] = e.spawn[3] - 0.5 end
+        end
+        return true
+    end)
+end
+
+function A.sceneDelete(lane, id)
+    local _, i = sceneFind(lane, id)
+    if not i then return end
+    change(function()
+        table.remove(S.seq.scene[lane], i)
+        for _, l in ipairs(S.seq.scene.lights or {}) do if l.follow == id then l.follow = nil end end
+        return true
+    end)
+    if S.sceneSel and S.sceneSel.id == id then S.sceneSel = nil end
+    sendState()
+end
+
+--- A key on a lane at the playhead (or `t`). A key already at that moment on the lane takes the new fields.
+--- 'here' in a walk, a drive, a prop's move or a focus is where the camera looks.
+function A.sceneKey(lane, id, key, t)
+    if type(key) ~= 'table' then return end
+    local keys = sceneKeys(lane, id)
+    if not keys then return end
+    local at = math.max(0, math.floor((tonumber(t) or S.playhead) + 0.5))
+    local aim = nil
+    local function here() aim = aim or aimPoint() return aim end
+    local k = {}
+    for f, v in pairs(key) do k[f] = v end
+    if k.walk == 'here' then local p = here() k.walk = { p[1], p[2], p[3], speed = 1.0 } end
+    if k.run == 'here' then local p = here() k.walk = { p[1], p[2], p[3], speed = 2.0 } k.run = nil end
+    if k.drive == 'here' then local p = here() k.drive = { p[1], p[2], p[3], speed = 20.0 } end
+    if k.move == 'here' then local p = here() k.move = round3({ p[1], p[2], p[3] - 1.0 }) end
+    if k.focus == 'here' then k.focus = round3(here()) end
+    if lane == 'fx' and type(k.particle) == 'table' and k.particle.pos == 'here' then k.particle.pos = round3(here()) end
+    if lane == 'fx' and type(k.explosion) == 'table' and k.explosion.pos == 'here' then k.explosion.pos = round3(here()) end
+    local ok = change(function()
+        for _, old in ipairs(keys) do
+            if math.abs(old.t - at) <= 1 then
+                for f, v in pairs(k) do old[f] = v end
+                return true
+            end
+        end
+        k.t = at
+        keys[#keys + 1] = k
+        return true
+    end)
+    if ok then say(('Key on %s at %s'):format(id or lane, CamMath.round(at / 1000.0, 2) .. 's'), 'ok') end
+end
+
+function A.sceneKeyDelete(lane, id, i)
+    local keys = sceneKeys(lane, id)
+    if not (keys and keys[i]) then return end
+    change(function() table.remove(keys, i) return true end)
+end
+
+function A.sceneKeyMove(lane, id, i, t)
+    local keys = sceneKeys(lane, id)
+    if not (keys and keys[i]) then return end
+    t = math.max(0, math.floor((tonumber(t) or keys[i].t) + 0.5))
+    change(function() keys[i].t = t return true end)
+end
+
+--- An emote for an actor, from WHIP's emote menu (its videos and search; a pad works it): a key at the playhead.
+function A.sceneEmote(id)
+    if not sceneFind('actors', id) then return end
+    local t = S.playhead
+    Emotes.pickFor(function(cmd)
+        if type(cmd) == 'string' then A.sceneKey('actors', id, { emote = cmd }, t) end
+    end, { onClose = function() if S.open then takeFocus() end end })
+end
+
+-- ---- the scene in the world, at the playhead ----
+
+local function sceneSpawnSig(sc)
+    if not sc then return '' end
+    local parts = {}
+    for _, lane in ipairs({ 'actors', 'vehicles', 'props' }) do
+        for _, e in ipairs(sc[lane]) do
+            parts[#parts + 1] = json.encode({ lane, e.id, e.model, e.spawn, e.pos, e.rot, e.driver, e.props, e.outfit,
+                e.frozen, e.invincible })
+        end
+    end
+    return table.concat(parts, '|')
+end
+
+--- After any change: the scene's clean copy kept on the draft, and the one in the world brought up to it (spawned
+--- again only when what is spawned changed; keys and lights are taken over as they are).
+sceneSync = function()
+    if not S.open then return end
+    local clean = CamScene.clean(S.seq.scene, CamSequence.MAX_LENGTH)
+    S.seq.scene = clean and copy(clean) or nil
+    local sig = sceneSpawnSig(clean)
+    if sig == S.sceneSig and S.sceneRun and not S.sceneRun.stopped then
+        local sr = S.sceneRun
+        sr.scene = clean or sr.scene
+        for _, lane in ipairs({ 'actors', 'vehicles', 'props' }) do
+            for _, e in ipairs(clean and clean[lane] or {}) do
+                local live = sr[lane][e.id]
+                if live then live.def = e end
+            end
+        end
+        S.sceneAt = nil   -- seek again at the playhead
+        return
+    end
+    S.sceneSig = sig
+    S.sceneGen = (S.sceneGen or 0) + 1
+    local gen = S.sceneGen
+    if S.sceneRun then S.sceneRun:stop(); S.sceneRun = nil end
+    if not clean then return end
+    CreateThread(function()
+        local sr = CamScene.start(clean, S.subjects)
+        if not sr then return end
+        if gen ~= S.sceneGen or not S.open then sr:stop() return end
+        S.sceneRun, S.sceneAt = sr, nil
+        if S.run then S.run.subjects = S.subjects end
+        sendState()
+    end)
+end
+
+local function sceneStop()
+    S.sceneGen = (S.sceneGen or 0) + 1
+    if S.sceneRun then S.sceneRun:stop(); S.sceneRun = nil end
+    S.sceneSig, S.sceneAt = nil, nil
+end
+
+--- Each frame: the scene where the playhead is (played on while playing, put there when it jumps).
+local function sceneFrame(dt)
+    local sr = S.sceneRun
+    if not sr then return end
+    local t = S.playhead
+    if S.sceneAt == nil or (not S.playing and t ~= S.sceneAt) or (S.playing and (t < S.sceneAt or t - S.sceneAt > 600)) then
+        sr:seek(t)
+        S.sceneFrom = t - 0.5          -- a key right at the playhead fires as it plays on
+    elseif S.playing then
+        sr:advance(S.sceneFrom or t, t)
+        S.sceneFrom = t
+    end
+    S.sceneAt = t
+    sr:frame(t, dt, S.view and FreeCam.getCam() or nil)
+end
+
+-- ---- a pad on the panels ----
+-- LB + Menu: the left stick moves WHIP's pad cursor over the panels (html/js/pad-cursor.js) and A presses what is
+-- under it; the camera holds still. B (or LB + Menu again) gives the sticks back to the camera.
+
+function A.panels(on)
+    if on == nil then on = not S.panels end
+    on = on and true or false
+    if on == S.panels then return end
+    S.panels = on
+    FreeCam.setInputEnabled(not on and not S.drive and (S.pad or S.looking))
+    SendNUIMessage({ action = 'camEdPanels', on = on })
+    say(on and 'Panels: the stick moves the cursor, A presses, B goes back to the camera' or 'The camera has the sticks', 'info')
 end
 
 -- ============================================
@@ -1097,7 +1447,7 @@ local viewDownAt, viewHeld = nil, false
 -- With the HUD hidden, these bring it back and do nothing else (RB still plays: the clean shot).
 local PAD_SHOW_HUD = { PAD.a, PAD.b, PAD.x, PAD.y, PAD.menu }
 
-local function takeFocus()
+takeFocus = function()
     -- No cursor on a pad. While the mouse looks, the cursor is Focus.mouseLook's (client/focus.lua).
     Focus.take('cameraCreator', { cursor = not S.pad, keepInput = true, screen = true })
 end
@@ -1106,7 +1456,7 @@ local function setInput(pad, looking)
     local padChanged, lookChanged = pad ~= S.pad, looking ~= S.looking
     S.pad, S.looking = pad, looking
     FreeCam.setPad(pad)
-    FreeCam.setInputEnabled(not S.drive and (pad or looking))
+    FreeCam.setInputEnabled(not S.drive and not S.panels and (pad or looking))
     -- The look first, then the pad's cursor: on Legacy both take the hold, and the pad's word is the last.
     if lookChanged then Focus.mouseLook('cameraCreator', looking and true or false) end
     if padChanged then takeFocus() end
@@ -1248,6 +1598,9 @@ local function step(frame)
 
     -- LB + R3 on a pad: the controls to the game, or back to the camera (Tab on a keyboard, the page's).
     if pad and not inert and WhipPadModHeld and IsDisabledControlJustPressed(0, PAD.r3) then A.controls() end
+    -- LB + Menu: the pad on the panels (the cursor), or back on the camera.
+    if pad and not inert and WhipPadModHeld and IsDisabledControlJustPressed(0, PAD.menu) then A.panels() end
+    if S.panels and not pad then A.panels(false) end
 
     -- Grabbing the camera flies on from the picture on screen.
     if S.view and not S.drive and (looking or (pad and (math.abs(GetDisabledControlNormal(0, 30)) + math.abs(GetDisabledControlNormal(0, 31))
@@ -1271,13 +1624,14 @@ local function step(frame)
     end
 
     if S.view then showPlayhead(dt) end
+    sceneFrame(dt)
     if S.clean and S.clean.letterbox and S.view then Camera.letterbox() end
 
     local cam = camNow()
     if not S.hidePoints then drawWorld(now, cam) end
     if S.hideHud then HideHudAndRadarThisFrame() end
 
-    if pad and not inert and not S.drive then padFrame(dt) end
+    if pad and not inert and not S.drive and not S.panels then padFrame(dt) end
 
     if (frame + 1) % 6 == 0 then
         SendNUIMessage({ action = 'camEdCamera', x = cam.x, y = cam.y, z = cam.z, pitch = cam.pitch, yaw = cam.yaw,
@@ -1335,8 +1689,14 @@ local function openEditor(pose)
     S.pad, S.looking = nil, nil
     setInput(WhipLastInputIsPad(), false)
     gzEnsure()
+    S.panels = false
+    if not S.moods then
+        S.moods = {}
+        for _, m in ipairs(EmoteList.moods or {}) do S.moods[#S.moods + 1] = { key = m.anim, label = m.label } end
+    end
     SendNUIMessage({ action = 'camEdOpen' })
     sendState()
+    sceneSync()
 
     if not loopRunning then
         loopRunning = true
@@ -1363,6 +1723,8 @@ local function closeEditor()
     holdVehicle(false)
     S.drive = false
     gzRelease()
+    sceneStop()
+    if S.panels then S.panels = false; SendNUIMessage({ action = 'camEdPanels', on = false }) end
     writeDraft()
 end
 
@@ -1614,6 +1976,16 @@ cb('cePref', function(d) A.pref(d.field, d.value) end)
 cb('ceControls', function(d) if d.game == nil then A.controls() else A.controls(d.game == true) end end)
 cb('ceHud', function(d) if d.on == nil then A.hud() else A.hud(d.on == true) end end)
 cb('cePoints', function(d) if d.on == nil then A.points() else A.points(d.on == true) end end)
+cb('ceSceneSelect', function(d) A.sceneSelect(d.lane, d.id) end)
+cb('ceSceneAdd', function(d) A.sceneAdd(d.lane, d.model) end)
+cb('ceSceneSet', function(d) A.sceneSet(d.lane, d.id, d.field, d.value) end)
+cb('ceSceneHere', function(d) A.sceneHere(d.lane, d.id) end)
+cb('ceSceneDelete', function(d) A.sceneDelete(d.lane, d.id) end)
+cb('ceSceneKey', function(d) A.sceneKey(d.lane, d.id, d.key, d.t) end)
+cb('ceSceneKeyDelete', function(d) A.sceneKeyDelete(d.lane, d.id, tonumber(d.i)) end)
+cb('ceSceneKeyMove', function(d) A.sceneKeyMove(d.lane, d.id, tonumber(d.i), d.t) end)
+cb('ceSceneEmote', function(d) if type(d.id) == 'string' then A.sceneEmote(d.id) end end)
+cb('cePanels', function(d) if d.on == nil then A.panels() else A.panels(d.on == true) end end)
 
 -- ============================================
 -- Register with the tool system

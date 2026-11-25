@@ -52,6 +52,7 @@ shared_script 'shared/tattoo_list.lua'
 shared_script 'shared/hair_fades.lua'
 shared_script 'shared/interact_spec.lua'
 shared_script 'shared/cam_math.lua'
+shared_script 'shared/cam_scene.lua'      -- before cam_sequence.lua (a sequence's scene)
 shared_script 'shared/cam_sequence.lua'
 shared_script 'shared/take_track.lua'
 -- Before any Director file on either side.
@@ -399,6 +400,7 @@ client_scripts {
     'client/pause.lua',         -- after controls.lua (ControlBlocks at file scope)
     'client/game_settings.lua', -- the pause menu's Settings page: GTA's settings menu under it
     'client/cam_shots.lua',
+    'client/cam_scene.lua',     -- before camera.lua (a sequence's scene, played with it)
     'client/camera.lua',
     'client/drive_cam.lua',     -- after camera.lua
     'client/charselect.lua',

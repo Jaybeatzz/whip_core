@@ -58,6 +58,23 @@ local ICON_SCALE = 0.5
 -- Lifted over the bay by a centimetre, so the two flat quads never fight for the same depth.
 local ICON_LIFT = 0.01
 
+-- ON THE GROUND, NOT WHERE IT WAS SAVED (25 Nov 2026): a bay's saved height can sit above the tarmac (the default
+-- garages' bays float), so the slab is laid on the map's real surface under it. One ray straight down from a metre
+-- over the saved height (a multi-storey car park finds its own floor, not the roof) to four metres under it,
+-- against the map only (not a car parked on it). Asked once per bay when it comes into range, kept, and asked
+-- again only if the bay moves; a miss (collision not loaded yet) is tried again two seconds later.
+local floorOf = {}   -- [spotId] = { key = 'x,y,z', z = number|false, at = ms }
+local function bayFloor(spotId, s)
+    local key = ('%.2f,%.2f,%.2f'):format(s.x, s.y, s.z)
+    local f = floorOf[spotId]
+    if f and f.key == key and (f.z or GetGameTimer() - f.at < 2000) then return f.z or s.z end
+    local ray = StartExpensiveSynchronousShapeTestLosProbe(s.x, s.y, s.z + 1.0, s.x, s.y, s.z - 4.0, 1, 0, 7)
+    local _, hit, pos = GetShapeTestResult(ray)
+    local z = (hit == 1 and pos and pos.z ~= 0.0) and pos.z or false
+    floorOf[spotId] = { key = key, z = z, at = GetGameTimer() }
+    return z or s.z
+end
+
 --- [spotId] = { x, y, z, heading, alpha, target, parked }
 ---
 --- Its own copy of the bay, not a reference into GetGarageSpotDefs() (a bay deleted mid-fade).
@@ -232,7 +249,7 @@ local function sweep()
                 live[spotId] = e
             end
 
-            e.x, e.y, e.z, e.heading = s.x, s.y, s.z, s.heading
+            e.x, e.y, e.z, e.heading = s.x, s.y, bayFloor(spotId, s), s.heading
             e.target = 1.0
             e.parked = (spotId == inSpotId)
                 and GarageHelperAligned(vheading, s.heading, c.alignDeg or 25.0) or false
